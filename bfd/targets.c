@@ -951,6 +951,7 @@ extern const bfd_target symbolsrec_vec;
 extern const bfd_target verilog_vec;
 extern const bfd_target tekhex_vec;
 extern const bfd_target binary_vec;
+extern const bfd_target ghidra_vec;
 extern const bfd_target ihex_vec;
 
 /* All of the xvecs for core files.  */
@@ -1377,6 +1378,7 @@ static const bfd_target * const _bfd_target_vector[] =
 	&tekhex_vec,
 /* Likewise for binary output.  */
 	&binary_vec,
+	&ghidra_vec,
 /* Likewise for ihex.  */
 	&ihex_vec,
 
