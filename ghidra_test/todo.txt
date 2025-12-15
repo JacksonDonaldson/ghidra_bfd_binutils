@@ -1,0 +1,10 @@
+1. Parse stdin, get path to ghidra repo, name of program separated by @
+2. parse ~index.dat:
+    - find the appropriate .gbf database file
+3. parse .gbf file
+    - find location of master table
+    - find location of symbol table
+    - find location of function data table
+    - for each symbol in the symbol table, if it's a function match it w/ function data table and print appropriate data
+4. translate to bfd format...
+
