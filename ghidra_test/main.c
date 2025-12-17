@@ -59,7 +59,6 @@ void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path,
         exit(1);
     }
 
-    // todo
     char folder_0 = *(match - 5);
     char folder_1 = *(match - 4);
 
@@ -107,23 +106,9 @@ void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path,
     
 }
 
+//constructs localbufferfile struct and returns master table offset
 
-void find_master_table(char* gbf_file_path) {
-    localbufferfile lbf;
 
-    create_localbufferfile(gbf_file_path, &lbf);
-
-    byte * master_buf = get_buffer(&lbf, 1);
-
-    if (master_buf[0] != 0x09) {
-        fprintf(stderr, "Error: Expected chained buffer byte\n");
-        for(int i = 0; i < 0x100; i++) {
-            printf("%02x ", master_buf[i]);
-        }
-        exit(1);
-    }
-    printf("all good");
-}
 int main(int argc, char ** argv) {
 
     char* ghidra_path, *program_name;
@@ -146,7 +131,12 @@ int main(int argc, char ** argv) {
     // Parse ~index.dat to find the appropriate .gbf database file
     parse_index_dat(ghidra_path, program_name, gbf_file_path, sizeof(gbf_file_path));
 
-    find_master_table(gbf_file_path);
+    localbufferfile lbf;
+    uint master_table_offset = find_master_table(gbf_file_path, &lbf);
+    printf("master table offset: %u\n", master_table_offset);
+
+    find_symbols_in_master_table(&lbf, master_table_offset);
+
     return 0;
 
 }
