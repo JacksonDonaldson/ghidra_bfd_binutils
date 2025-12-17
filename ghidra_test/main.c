@@ -1,5 +1,13 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <time.h>
+
+typedef unsigned int uint;
 /*
 1. Parse stdin, get path to ghidra repo, name of program
 2. parse ~index.dat:
@@ -16,6 +24,9 @@
 // Return the path to the .gbf file
 void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path, uint gbf_file_path_size) {
 
+    printf("ghidra_path: %s\n", ghidra_path);
+    printf("program_name: %s\n", program_name);
+
     //.gpr is just the pointer to the directory. Assume they want the repo w/ the same name.
     if (strncmp(ghidra_path + strlen(ghidra_path) - 4, ".gpr", 4) == 0) {
         ghidra_path[strlen(ghidra_path) - 4] = '\0';
@@ -24,6 +35,8 @@ void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path,
 
     char index_dat_path[MAX_PATH];
     snprintf(index_dat_path, sizeof(index_dat_path), "%s/idata/~index.dat", ghidra_path);
+    printf("index.dat path: %s\n", index_dat_path);
+
     FILE *index_dat_file = fopen(index_dat_path, "r");
     if (!index_dat_file) {
         fprintf(stderr, "Error: Unable to open ~index.dat file. Is %s a ghidra repo?\n", ghidra_path);
@@ -45,55 +58,76 @@ void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path,
     }
 
     // todo
-    char folder_0 = *(match - 4);
-    char folder_1 = *(match - 3);
+    char folder_0 = *(match - 5);
+    char folder_1 = *(match - 4);
+
     *(match-1) = '\0';
 
     char gbf_folder_path[MAX_PATH];
-    snprintf(gbf_folder_path, sizeof(gbf_folder_path), "%s/idata/%c%c/%s/%s.gbf", ghidra_path, folder_0, folder_1, program_name, program_name);
+    snprintf(gbf_folder_path, sizeof(gbf_folder_path), "%s/idata/%c%c/~%s.db/", ghidra_path, folder_0, folder_1, match - 9);
+    printf("gbf folder path: %s\n", gbf_folder_path);
 
-    
+    DIR *dir = opendir(gbf_folder_path);
+    if (!dir) {
+        fprintf(stderr, "Error: Unable to open directory %s: %s\n", gbf_folder_path, strerror(errno));
+        exit(1);
+    }
+
+    struct dirent *entry;
+    struct stat st;
+    char candidate_path[MAX_PATH];
+    time_t newest_mtime = 0;
+    int found = 0;
+
+    while ((entry = readdir(dir)) != NULL) {
+        size_t len = strlen(entry->d_name);
+        if (len < 4 || strcmp(entry->d_name + len - 4, ".gbf") != 0)
+            continue;
+        snprintf(candidate_path, sizeof(candidate_path), "%s%s", gbf_folder_path, entry->d_name);
+        if (stat(candidate_path, &st) == 0 && S_ISREG(st.st_mode)) {
+            if (!found || st.st_mtime > newest_mtime) {
+                strncpy(gbf_file_path, candidate_path, gbf_file_path_size - 1);
+                gbf_file_path[gbf_file_path_size - 1] = '\0';
+                newest_mtime = st.st_mtime;
+                found = 1;
+            }
+        }
+    }
+
+    closedir(dir);
+
+    if (!found) {
+        fprintf(stderr, "Error: No .gbf files found in %s\n", gbf_folder_path);
+        exit(1);
+    }
+
+    printf("Most recent .gbf file: %s\n", gbf_file_path);
     
 }
 
-int main(char ** argv, int argc) {
+int main(int argc, char ** argv) {
 
     char* ghidra_path, *program_name;
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <ghidra_path>@<program_name>\n", argv[0]);
-        return 1;
+        exit(1);
     }
+
+    char *at_sign = strchr(argv[1], '@');
+    if (!at_sign) {
+        fprintf(stderr, "Usage: %s <ghidra_path>@<program_name>\n", argv[0]);
+        exit(1);
+    }
+    *at_sign = '\0';
+    ghidra_path = argv[1];
+    program_name = at_sign + 1;
+
+    char gbf_file_path[MAX_PATH];
 
     // Parse ~index.dat to find the appropriate .gbf database file
-    char *gbf_file = parse_index_dat(ghidra_path, program_name);
+    parse_index_dat(ghidra_path, program_name, gbf_file_path, sizeof(gbf_file_path));
 
-    // Parse the .gbf file to find the locations of the master table, symbol table, and function data table
-    struct gbf_file *gbf = parse_gbf_file(gbf_file);
-    struct master_table *master_table = find_master_table(gbf);
-    struct symbol_table *symbol_table = find_symbol_table(gbf);
-    struct function_data_table *function_data_table = find_function_data_table(gbf);
-
-    // For each symbol in the symbol table, if it's a function, match it with the function data table and print appropriate data
-    for (int i = 0; i < symbol_table->num_symbols; i++) {
-        struct symbol *symbol = &symbol_table->symbols[i];
-        if (symbol->type == FUNCTION) {
-            struct function_data *function_data = find_function_data(function_data_table, symbol->name);
-            printf("Function: %s\n", symbol->name);
-            printf("Address: 0x%lx\n", function_data->address);
-            printf("Size: %lu bytes\n", function_data->size);
-            printf("Return Type: %s\n", function_data->return_type);
-            printf("Parameters: %s\n", function_data->parameters);
-        }
-    }
-
-    // Free allocated memory
-    free(ghidra_path);
-    free(program_name);
-    free(gbf_file);
-    free_gbf_file(gbf);
-    free_master_table(master_table);
-    free_symbol_table(symbol_table);
-    free_function_data_table(function_data_table);
-
+    
     return 0;
+
 }
