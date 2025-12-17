@@ -6,8 +6,10 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <time.h>
+#include "localbufferfile.h"
 
 typedef unsigned int uint;
+typedef unsigned char byte;
 /*
 1. Parse stdin, get path to ghidra repo, name of program
 2. parse ~index.dat:
@@ -46,7 +48,7 @@ void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path,
     char* match = NULL;
     char index_data[MAX_PATH];
     while (fgets(index_data, sizeof(index_data), index_dat_file)) {
-        if (match = strstr(index_data, program_name)) {
+        if ((match = strstr(index_data, program_name))) {
             break;
         }
     }
@@ -75,7 +77,7 @@ void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path,
 
     struct dirent *entry;
     struct stat st;
-    char candidate_path[MAX_PATH];
+    char candidate_path[MAX_PATH * 2];
     time_t newest_mtime = 0;
     int found = 0;
 
@@ -105,6 +107,23 @@ void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path,
     
 }
 
+
+void find_master_table(char* gbf_file_path) {
+    localbufferfile lbf;
+
+    create_localbufferfile(gbf_file_path, &lbf);
+
+    byte * master_buf = get_buffer(&lbf, 1);
+
+    if (master_buf[0] != 0x09) {
+        fprintf(stderr, "Error: Expected chained buffer byte\n");
+        for(int i = 0; i < 0x100; i++) {
+            printf("%02x ", master_buf[i]);
+        }
+        exit(1);
+    }
+    printf("all good");
+}
 int main(int argc, char ** argv) {
 
     char* ghidra_path, *program_name;
@@ -127,7 +146,7 @@ int main(int argc, char ** argv) {
     // Parse ~index.dat to find the appropriate .gbf database file
     parse_index_dat(ghidra_path, program_name, gbf_file_path, sizeof(gbf_file_path));
 
-    
+    find_master_table(gbf_file_path);
     return 0;
 
 }
