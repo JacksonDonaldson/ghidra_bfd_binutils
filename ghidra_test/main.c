@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <time.h>
 #include "localbufferfile.h"
+#include "gbf.h"
 
 typedef unsigned int uint;
 typedef unsigned char byte;
@@ -106,8 +107,6 @@ void parse_index_dat(char *ghidra_path, char *program_name, char* gbf_file_path,
     
 }
 
-//constructs localbufferfile struct and returns master table offset
-
 
 int main(int argc, char ** argv) {
 
@@ -135,7 +134,11 @@ int main(int argc, char ** argv) {
     uint master_table_offset = find_master_table(gbf_file_path, &lbf);
     printf("master table offset: %u\n", master_table_offset);
 
-    find_symbols_in_master_table(&lbf, master_table_offset);
+    tabledata data;
+    find_table_in_master_table(&lbf, "Symbols", master_table_offset, &data);
+
+    print_tabledata(&data);
+
 
     return 0;
 
