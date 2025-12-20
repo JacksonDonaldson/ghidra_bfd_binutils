@@ -12,11 +12,24 @@ typedef struct {
     uint index_column;
     long long max_key;
     uint record_count;
+    localbufferfile* lbf;
 } tabledata;
+
+typedef struct {
+    tabledata * table_data;
+    byte* buffer;
+    uint current_record;
+} tablerecord;
 
 uint find_master_table(char* gbf_file_path, localbufferfile* lbf);
 
-uint find_table_in_master_table(localbufferfile* lbf, char* table, uint master_table_offset, tabledata* table_data);
+uint get_tabledata_from_master_table(localbufferfile* lbf, char* table, uint master_table_offset, tabledata* table_data);
+
+uint get_iterator(tabledata* table_data, tablerecord *entry);
+
+uint next_record(tablerecord *entry);
+
+uint get_record_field(tablerecord *record, char *target_name, void *out, uint out_len);
 
 void print_tabledata(tabledata* table_data);
 

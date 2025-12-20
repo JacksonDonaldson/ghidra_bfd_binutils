@@ -39,7 +39,7 @@ uint find_master_table(char* gbf_file_path, localbufferfile* lbf) {
 }
 
 //if table_name is found, fills out tabledata
-uint find_table_in_master_table(localbufferfile* lbf, char* table_name, uint master_table_offset, tabledata * data) {
+uint get_tabledata_from_master_table(localbufferfile* lbf, char* table_name, uint master_table_offset, tabledata * data) {
     // Read the master table
     byte *master_table = get_buffer(lbf, master_table_offset + 1);
 
@@ -77,9 +77,12 @@ uint find_table_in_master_table(localbufferfile* lbf, char* table_name, uint mas
                 continue;
             }
             //we've found the table of interest. Let's actually fill out tabledata.
+            data->lbf = lbf;
+
             memcpy(data->name, table_name, target_len);
             data->name[target_len] = '\0';
             
+
             record += table_name_len + 4;
             printf("Found table: %s at %08x\n", table_name, rec_offset);
             data->schema_version = readint(record, 0);
@@ -109,14 +112,183 @@ uint find_table_in_master_table(localbufferfile* lbf, char* table_name, uint mas
     return 1;
 }
 
+
+uint get_iterator(tabledata *data, tablerecord *record) {
+    record->table_data = data;
+    record->current_record = -1;
+    record->buffer = get_buffer(record->table_data->lbf, record->table_data->root_buffer_id + 1);
+    if(record->buffer[0] != 0x01){
+        fprintf(stderr, "Error: Expected VarRecNode\n");
+        exit(1);
+    }
+    if(readint(record->buffer, 1) != record->table_data->record_count){
+        fprintf(stderr, "Error: record count mismatch\n");
+        exit(1);
+    }
+
+    next_record(record);
+    return 0;
+}
+
+
+uint next_record(tablerecord *record) {
+    record->current_record++;
+    if (record->current_record >= record->table_data->record_count) {
+        return 1;
+    }
+    return 0;
+}
+
+byte * get_record_buffer(tablerecord *record) {
+    uint record_offset = readint(record->buffer, 21 + record->current_record * 13);
+    return record->buffer + record_offset;
+}
+
+uint handle_field(byte field_type, byte ** record_buffer_ptr, void *out, uint out_len, uint want_output) {
+    byte* record_buffer = *record_buffer_ptr;
+    switch(field_type){
+        case 0x00: // BYTE
+            if(want_output){
+                if(out_len < 1){
+                    return 2;
+                }
+                memcpy(out, record_buffer, 1);
+            }
+            record_buffer += 1;
+            break;
+        case 0x01: // SHORT
+            if(want_output){
+                if(out_len < 2){
+                    return 2;
+                }
+                memcpy(out, record_buffer, 2);
+            }
+            record_buffer += 2;
+            break;
+        case 0x02: // INT
+            if(want_output){
+                if(out_len < 4){
+                    return 2;
+                }
+                memcpy(out, record_buffer, 4);
+            }
+            record_buffer += 4;
+            break;
+        case 0x03: // LONG
+            if(want_output){
+                if(out_len < 8){
+                    return 2;
+                }
+                memcpy(out, record_buffer, 8);
+            }
+            record_buffer += 8;
+            break;
+        case 0x04: // STRING
+            uint str_len = readint(record_buffer, 0);
+            if(want_output){
+                if(out_len < str_len + 1){
+                    return 2;
+                }
+                memcpy(out, record_buffer + 4, str_len);
+                ((char*)out)[str_len] = '\0';
+            }
+            record_buffer += 4 + str_len;
+            break;
+        case 0x05: // BINARY
+            uint bin_len = readint(record_buffer, 0);
+            if(want_output){
+                if(out_len < bin_len){
+                    return 2;
+                }
+                memcpy(out, record_buffer + 4, bin_len);
+            }
+            record_buffer += 4 + bin_len;
+            break;
+        case 0x06: // BOOLEAN
+            if(want_output){
+                if(out_len < 1){
+                    return 2;
+                }
+                memcpy(out, record_buffer, 1);
+            }
+            record_buffer += 1;
+            break;
+        case 0x07: // FIXED_10_TYPE
+            if(want_output){
+                if(out_len < 10){
+                    return 2;
+                }
+                memcpy(out, record_buffer, 10);
+            }
+            record_buffer += 10;
+            break;
+        default:
+            fprintf(stderr, "Error: unsupported field type %02x\n", field_type);
+            exit(1);
+    }
+    *record_buffer_ptr = record_buffer;
+    return 0;
+}
+
+uint get_record_field(tablerecord *record, char *target_name, void *out, uint out_len) {
+    char* field_names_ptr = record->table_data->schema_field_names;
+    uint field_names_len = record->table_data->schema_field_names_len;
+    char* original_field_names_ptr = field_names_ptr;
+    uint target_name_len = strlen(target_name);
+
+    byte* record_buffer = get_record_buffer(record);
+
+    //skip the first field name (it's the primary key name)
+    uint first_field_offset = 0;
+    while(field_names_ptr[first_field_offset] != ';'){
+        first_field_offset++;
+        if(first_field_offset + (field_names_ptr - original_field_names_ptr) >= field_names_len){
+            fprintf(stderr, "Error: corrupted field names?\n");
+            exit(1);
+        }
+    }
+    field_names_ptr += first_field_offset + 1;
+
+    //field_names_ptr += 4;
+
+    for(int i = 0; i < record->table_data->schema_field_types_len; i++){
+        byte field_type = record->table_data->schema_field_types[i];
+
+        uint semicolon_offset = 0;
+        while(field_names_ptr[semicolon_offset] != ';'){
+            semicolon_offset++;
+            if(semicolon_offset + (field_names_ptr - original_field_names_ptr) >= field_names_len){
+                fprintf(stderr, "Error: corrupted field names?\n");
+                exit(1);
+            }
+        }
+        //check if this is the field we're looking for
+        uint want_output = (semicolon_offset == target_name_len && memcmp(field_names_ptr, target_name, target_name_len) == 0);
+        field_names_ptr += semicolon_offset + 1;
+
+        uint result = handle_field(field_type, &record_buffer, out, out_len, want_output);
+        if(result){
+            return result;
+        }
+        if(want_output){
+            return 0;
+        }
+    }
+    return 5;
+}
+
 void print_tabledata(tabledata * data) {
     printf("tabledata:\n");
     printf("  name: %s\n", data->name);
     printf("  schema version: %u\n", data->schema_version);
     printf("  root buffer id: %u\n", data->root_buffer_id);
     printf("  key type: %u\n", data->key_type);
-    printf("  schema field types length: %u\n", data->schema_field_types_len);
-    printf("  schema field names length: %u\n", data->schema_field_names_len);
+    printf("  schema field types length: %u\n    ", data->schema_field_types_len);
+    for(int i = 0; i < data->schema_field_types_len; i++){
+        printf("%02x ", data->schema_field_types[i]);
+    }
+    printf("\n");
+    printf("  schema field names length: %u\n    %s\n", data->schema_field_names_len, data->schema_field_names);
     printf("  index column: %u\n", data->index_column);
     printf("  max key: %lld\n", data->max_key);
     printf("  record count: %u\n", data->record_count);

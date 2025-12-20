@@ -135,11 +135,25 @@ int main(int argc, char ** argv) {
     printf("master table offset: %u\n", master_table_offset);
 
     tabledata data;
-    find_table_in_master_table(&lbf, "Symbols", master_table_offset, &data);
+    get_tabledata_from_master_table(&lbf, "Symbols", master_table_offset, &data);
 
     print_tabledata(&data);
 
+    tablerecord entry;
+    get_iterator(&data, &entry);
 
+    char name[0x50];
+    do{
+        get_record_field(&entry, "Name", name, sizeof(name));
+        printf("symbol name: %s\n", name);
+        
+    }while (!next_record(&entry));
+
+
+    
+
+    //iterate through symbols table to find functions
+    
     return 0;
 
 }
