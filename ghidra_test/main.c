@@ -135,34 +135,27 @@ int main(int argc, char ** argv) {
     printf("master table offset: %u\n", master_table_offset);
 
     tabledata data;
-    get_tabledata_from_master_table(&lbf, "Symbols", master_table_offset, &data);
+
+    get_tabledata_from_master_table(&lbf, "Function Data", master_table_offset, &data);
 
     print_tabledata(&data);
 
     tablerecord entry;
     get_iterator(&data, &entry);
 
-    char name[0x50];
     do{
-        if(get_record_field(&entry, "Name", name, sizeof(name))){
-            fprintf(stderr, "Error: Unable to read symbol name\n");
-        }
-        uint type = 0;
-        if(get_record_field(&entry, "Symbol Type", &type, sizeof(type))){
-            fprintf(stderr, "Error: Unable to read symbol type\n");
-        }
+        print_record(&entry);
+    } while(!next_record(&entry));
 
-        long long address = 0;
-        if(get_record_field(&entry, "Address", &address, sizeof(address))){
-            fprintf(stderr, "Error: Unable to read symbol address\n");
-        }
-        long long primary;
-        if(get_record_field(&entry, "Primary", &primary, sizeof(primary))){
-            fprintf(stderr, "Error: Unable to read Primary\n");
-        }
-        if(type == 5)
-            printf("symbol \ttype: %d\taddress: %16llx name: %s Primary: %llx\n ", type, address, name, primary);
-        
+    get_tabledata_from_master_table(&lbf, "Symbols", master_table_offset, &data);
+
+    print_tabledata(&data);
+
+
+    get_iterator(&data, &entry);
+
+    do{
+        print_record(&entry);
     }while (!next_record(&entry));
 
 

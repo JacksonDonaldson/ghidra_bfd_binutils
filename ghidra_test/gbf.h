@@ -1,5 +1,9 @@
 #include "localbufferfile.h"
 
+#define E_NOT_FOUND 1
+#define E_INVALID 2
+#define E_EOF 3
+
 typedef struct {
     char name[0x80];
     uint schema_version;
@@ -38,6 +42,8 @@ uint next_record(tablerecord *entry);
 uint get_record_field(tablerecord *record, char *target_name, void *out, uint out_len);
 
 void print_tabledata(tabledata* table_data);
+
+void print_record(tablerecord *record);
 
 void free_tabledata(tabledata* table_data);
 

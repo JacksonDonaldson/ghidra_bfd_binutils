@@ -142,7 +142,6 @@ uint get_tabledata_from_master_table(localbufferfile* lbf, char* table_name, uin
     return 1;
 }
 
-
 uint get_iterator(tabledata *data, tablerecord *record) {
     record->table_data = data;
     record->current_record = -1;
@@ -159,7 +158,6 @@ uint get_iterator(tabledata *data, tablerecord *record) {
     next_record(record);
     return 0;
 }
-
 
 uint next_record(tablerecord *record) {
     record->current_record++;
@@ -221,7 +219,10 @@ uint handle_field(byte field_type, byte ** record_buffer_ptr, void *out, uint ou
             record_buffer += 8;
             break;
         case 0x04: // STRING
-            uint str_len = readint(record_buffer, 0);
+            int str_len = readint(record_buffer, 0);
+            if(str_len < 0){
+                str_len = 0;
+            }
             if(want_output){
                 if(out_len < str_len + 1){
                     return 2;
@@ -296,9 +297,8 @@ uint get_record_field(tablerecord *record, char *target_name, void *out, uint ou
             field_names_ptr = after_semicolon + 1;
         }
     }
-    if(target_field_index == -1){
-        fprintf(stderr, "Error: field name %s not found in table\n", target_name);
-        exit(1);
+    if(target_field_index == 0xff){
+        return E_NOT_FOUND;
     }
 
     //field_names_ptr += 4;
@@ -321,7 +321,6 @@ uint get_record_field(tablerecord *record, char *target_name, void *out, uint ou
         }
         
         int want_output = field_index == target_field_index;
-        // printf("buf: %16llx\n", (unsigned long long)record_buffer);
         uint result = handle_field(field_type, &record_buffer, out, out_len, want_output);
         
         if(result){
@@ -354,6 +353,66 @@ void print_tabledata(tabledata * data) {
     printf("  index column: %u\n", data->index_column);
     printf("  max key: %lld\n", data->max_key);
     printf("  record count: %u\n", data->record_count);
+}
+
+void print_record(tablerecord *record) {
+    printf("tablerecord:\n");
+    char *field_names = record->table_data->schema_field_names;
+    char *field_start = strstr(field_names, ";") + 1;
+    if(field_start == NULL) {
+        printf("  No field names found.\n");
+        return;
+    }
+    char *field_end;
+    int field_idx = 0;
+
+    while ((field_end = strchr(field_start, ';')) != NULL) {
+        int name_len = field_end - field_start;
+        if (name_len > 0) {
+            char field_name[256];
+            if (name_len >= sizeof(field_name))
+                name_len = sizeof(field_name) - 1;
+            memcpy(field_name, field_start, name_len);
+            field_name[name_len] = '\0';
+
+            // Try to get the field value as bytes (max 64 bytes for printing)
+            unsigned char buf[64];
+            int result = get_record_field(record, field_name, buf, sizeof(buf));
+            fflush(stdout);
+            if (result == 0) {
+                printf("  %s: ", field_name);
+                byte type = record->table_data->schema_field_types[field_idx];
+                if (type == 0x00 || type == 0x06) {
+                    // BYTE or BOOLEAN
+                    printf("%02x\n", *(byte*)buf);
+                } else if (type == 0x01) {
+                    // SHORT
+                    printf("%04x\n", *(short*)buf);
+                } else if (type == 0x02) {
+                    // INT
+                    printf("%08x\n", *(int*)buf);
+                } else if (type == 0x03) {
+                    // LONG
+                    printf("%016llx\n", *(long long*)buf);
+                } else if (type == 0x04) {
+                    // STRING
+                    printf("%s\n", buf);
+                } else if (type == 0x05) {
+                    // BINARY
+                    printf("<binary data>\n");
+                } else if (type == 0x07) {
+                    // FIXED_10_TYPE
+                    printf("<fixed 10-byte data>\n");
+                } else {
+                    printf("<unknown type>\n");
+                }
+            } else {
+                printf("  %s: <error reading>\n", field_name);
+            }
+        }
+        field_start = field_end + 1;
+        field_idx++;
+    }
 }
 void free_tabledata(tabledata * data) {
     if (data->schema_field_types_len > 0) {
