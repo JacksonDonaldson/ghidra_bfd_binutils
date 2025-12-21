@@ -5,10 +5,16 @@ typedef struct {
     uint schema_version;
     uint root_buffer_id;
     byte key_type;
+
     uint schema_field_types_len;
     byte *schema_field_types;
+    
+    uint sparse_fields_len;
+    byte * sparse_fields;
+
     uint schema_field_names_len;
     char *schema_field_names;
+
     uint index_column;
     long long max_key;
     uint record_count;

@@ -4,6 +4,10 @@
 #include "localbufferfile.h"
 #include "gbf.h"
 
+short readshort(byte * buffer, int offset){
+    return (buffer[offset] << 8) | buffer[offset+1];
+}
+
 int readint(byte * buffer, int offset){
     return (buffer[offset] << 24) | (buffer[offset+1] << 16) | (buffer[offset+2] << 8) | buffer[offset+3];
 }
@@ -40,6 +44,8 @@ uint find_master_table(char* gbf_file_path, localbufferfile* lbf) {
 
 //if table_name is found, fills out tabledata
 uint get_tabledata_from_master_table(localbufferfile* lbf, char* table_name, uint master_table_offset, tabledata * data) {
+    memset(data, 0, sizeof(tabledata));
+
     // Read the master table
     byte *master_table = get_buffer(lbf, master_table_offset + 1);
 
@@ -89,11 +95,35 @@ uint get_tabledata_from_master_table(localbufferfile* lbf, char* table_name, uin
             data->root_buffer_id = readint(record, 4);
             data->key_type = record[8];
             data->schema_field_types_len = readint(record, 9);
+            uint original_field_types_len = data->schema_field_types_len ;
             if (data->schema_field_types_len > 0) {
                 data->schema_field_types = malloc(data->schema_field_types_len);
                 memcpy(data->schema_field_types, record + 13, data->schema_field_types_len);
+
+                //check for extensions
+                for(int j = 0; j < original_field_types_len; j++){
+                    if(data->schema_field_types[j] == 0xff){
+                        // found an extension
+
+                        // only include non-extension bytes in schema_field_types
+                        if(original_field_types_len == data->schema_field_types_len){
+                            data->schema_field_types_len = j;
+                        }
+
+                        //see if this is a sparse index extension
+                        if(j < original_field_types_len - 1 && data->schema_field_types[j+1] == 1){
+                            //this is a sparse index extension
+                            data->sparse_fields = data->schema_field_types + j + 2;
+                            int sparse_count = 0;
+                            while(j + 2 + sparse_count < original_field_types_len && data->schema_field_types[j + 2 + sparse_count] != 0xff){
+                                sparse_count++;
+                            }
+                            data->sparse_fields_len = sparse_count;
+                        }
+                    }
+                }
             }
-            record = record + data->schema_field_types_len + 13;
+            record = record + original_field_types_len + 13;
             data->schema_field_names_len = readint(record, 0);
             if (data->schema_field_names_len > 0) {
                 data->schema_field_names = malloc(data->schema_field_names_len);
@@ -146,6 +176,10 @@ byte * get_record_buffer(tablerecord *record) {
 
 uint handle_field(byte field_type, byte ** record_buffer_ptr, void *out, uint out_len, uint want_output) {
     byte* record_buffer = *record_buffer_ptr;
+    short tempshort;
+    uint tempuint;
+    long long templong;
+
     switch(field_type){
         case 0x00: // BYTE
             if(want_output){
@@ -161,7 +195,8 @@ uint handle_field(byte field_type, byte ** record_buffer_ptr, void *out, uint ou
                 if(out_len < 2){
                     return 2;
                 }
-                memcpy(out, record_buffer, 2);
+                tempshort = readshort(record_buffer, 0);
+                memcpy(out, &tempshort, 2);
             }
             record_buffer += 2;
             break;
@@ -170,7 +205,8 @@ uint handle_field(byte field_type, byte ** record_buffer_ptr, void *out, uint ou
                 if(out_len < 4){
                     return 2;
                 }
-                memcpy(out, record_buffer, 4);
+                tempuint = readint(record_buffer, 0);
+                memcpy(out, &tempuint, 4);
             }
             record_buffer += 4;
             break;
@@ -179,7 +215,8 @@ uint handle_field(byte field_type, byte ** record_buffer_ptr, void *out, uint ou
                 if(out_len < 8){
                     return 2;
                 }
-                memcpy(out, record_buffer, 8);
+                templong = readlong(record_buffer, 0);
+                memcpy(out, &templong, 8);
             }
             record_buffer += 8;
             break;
@@ -232,41 +269,36 @@ uint handle_field(byte field_type, byte ** record_buffer_ptr, void *out, uint ou
 
 uint get_record_field(tablerecord *record, char *target_name, void *out, uint out_len) {
     char* field_names_ptr = record->table_data->schema_field_names;
-    uint field_names_len = record->table_data->schema_field_names_len;
-    char* original_field_names_ptr = field_names_ptr;
     uint target_name_len = strlen(target_name);
 
     byte* record_buffer = get_record_buffer(record);
-
+    // printf("starting bubffer: %16llx\n", (unsigned long long)record_buffer);
     //skip the first field name (it's the primary key name)
-    uint first_field_offset = 0;
-    while(field_names_ptr[first_field_offset] != ';'){
-        first_field_offset++;
-        if(first_field_offset + (field_names_ptr - original_field_names_ptr) >= field_names_len){
-            fprintf(stderr, "Error: corrupted field names?\n");
-            exit(1);
-        }
+    char* after_semicolon = strstr(field_names_ptr, ";");
+    if(after_semicolon == NULL){
+        fprintf(stderr, "Error: corrupted field names?\n");
+        exit(1);
     }
-    field_names_ptr += first_field_offset + 1;
+    field_names_ptr = after_semicolon + 1;
 
     //field_names_ptr += 4;
 
     for(int i = 0; i < record->table_data->schema_field_types_len; i++){
         byte field_type = record->table_data->schema_field_types[i];
 
-        uint semicolon_offset = 0;
-        while(field_names_ptr[semicolon_offset] != ';'){
-            semicolon_offset++;
-            if(semicolon_offset + (field_names_ptr - original_field_names_ptr) >= field_names_len){
-                fprintf(stderr, "Error: corrupted field names?\n");
-                exit(1);
-            }
+        //find the semicolon that ends this field name
+        after_semicolon = strstr(field_names_ptr, ";");
+        if(after_semicolon == NULL){
+            fprintf(stderr, "Error: corrupted field names?\n");
+            exit(1);
         }
         //check if this is the field we're looking for
-        uint want_output = (semicolon_offset == target_name_len && memcmp(field_names_ptr, target_name, target_name_len) == 0);
-        field_names_ptr += semicolon_offset + 1;
+        uint want_output = (after_semicolon - field_names_ptr == target_name_len && memcmp(field_names_ptr, target_name, target_name_len) == 0);
+        field_names_ptr = after_semicolon + 1;
 
+        // printf("buf: %16llx\n", (unsigned long long)record_buffer);
         uint result = handle_field(field_type, &record_buffer, out, out_len, want_output);
+        
         if(result){
             return result;
         }
@@ -286,6 +318,11 @@ void print_tabledata(tabledata * data) {
     printf("  schema field types length: %u\n    ", data->schema_field_types_len);
     for(int i = 0; i < data->schema_field_types_len; i++){
         printf("%02x ", data->schema_field_types[i]);
+    }
+    printf("\n");
+    printf("  schema sparse fields length: %u\n    ", data->sparse_fields_len);
+    for(int i = 0; i < data->sparse_fields_len; i++){
+        printf("%02x ", data->sparse_fields[i]);
     }
     printf("\n");
     printf("  schema field names length: %u\n    %s\n", data->schema_field_names_len, data->schema_field_names);

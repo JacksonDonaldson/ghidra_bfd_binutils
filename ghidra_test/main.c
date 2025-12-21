@@ -144,8 +144,24 @@ int main(int argc, char ** argv) {
 
     char name[0x50];
     do{
-        get_record_field(&entry, "Name", name, sizeof(name));
-        printf("symbol name: %s\n", name);
+        if(get_record_field(&entry, "Name", name, sizeof(name))){
+            fprintf(stderr, "Error: Unable to read symbol name\n");
+        }
+        uint type = 0;
+        if(get_record_field(&entry, "Symbol Type", &type, sizeof(type))){
+            fprintf(stderr, "Error: Unable to read symbol type\n");
+        }
+
+        long long address = 0;
+        if(get_record_field(&entry, "Address", &address, sizeof(address))){
+            fprintf(stderr, "Error: Unable to read symbol address\n");
+        }
+        long long libpath;
+        if(get_record_field(&entry, "Primary", &libpath, sizeof(libpath))){
+            fprintf(stderr, "Error: Unable to read symbol library path\n");
+        }
+        if(type == 5)
+        printf("symbol \ttype: %d\taddress: %16llx name: %s libpath %llx\n ", type, address, name, libpath);
         
     }while (!next_record(&entry));
 
