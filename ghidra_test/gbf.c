@@ -272,7 +272,6 @@ uint get_record_field(tablerecord *record, char *target_name, void *out, uint ou
     uint target_name_len = strlen(target_name);
 
     byte* record_buffer = get_record_buffer(record);
-    // printf("starting bubffer: %16llx\n", (unsigned long long)record_buffer);
     //skip the first field name (it's the primary key name)
     char* after_semicolon = strstr(field_names_ptr, ";");
     if(after_semicolon == NULL){
@@ -280,22 +279,48 @@ uint get_record_field(tablerecord *record, char *target_name, void *out, uint ou
         exit(1);
     }
     field_names_ptr = after_semicolon + 1;
-
-    //field_names_ptr += 4;
-
-    for(int i = 0; i < record->table_data->schema_field_types_len; i++){
-        byte field_type = record->table_data->schema_field_types[i];
-
-        //find the semicolon that ends this field name
+    //then search for the target name
+    byte target_field_index = -1;
+    uint field_count = record->table_data->schema_field_types_len;
+    for(int i = 0; i < field_count; i++){
         after_semicolon = strstr(field_names_ptr, ";");
         if(after_semicolon == NULL){
             fprintf(stderr, "Error: corrupted field names?\n");
             exit(1);
         }
-        //check if this is the field we're looking for
-        uint want_output = (after_semicolon - field_names_ptr == target_name_len && memcmp(field_names_ptr, target_name, target_name_len) == 0);
-        field_names_ptr = after_semicolon + 1;
+        uint field_name_len = after_semicolon - field_names_ptr;
+        if(field_name_len == target_name_len && memcmp(field_names_ptr, target_name, field_name_len) == 0){
+            target_field_index = i;
+            break;
+        } else {
+            field_names_ptr = after_semicolon + 1;
+        }
+    }
+    if(target_field_index == -1){
+        fprintf(stderr, "Error: field name %s not found in table\n", target_name);
+        exit(1);
+    }
 
+    //field_names_ptr += 4;
+    int sparse_offset = record->table_data->schema_field_types_len - record->table_data->sparse_fields_len;
+    uint record_count = record->table_data->schema_field_types_len; 
+    for(int i = 0; i < record_count; i++){
+        byte field_type = record->table_data->schema_field_types[i];
+        byte field_index = i;
+        // check sparsity
+        if ( i == sparse_offset){
+            byte sparse_data_count = record_buffer[0];
+            record_count = i + sparse_data_count;
+            record_buffer++;
+
+        }
+        if(i >= sparse_offset){
+            field_index = record_buffer[0];
+            field_type = record->table_data->schema_field_types[field_index];
+            record_buffer++;
+        }
+        
+        int want_output = field_index == target_field_index;
         // printf("buf: %16llx\n", (unsigned long long)record_buffer);
         uint result = handle_field(field_type, &record_buffer, out, out_len, want_output);
         

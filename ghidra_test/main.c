@@ -156,12 +156,12 @@ int main(int argc, char ** argv) {
         if(get_record_field(&entry, "Address", &address, sizeof(address))){
             fprintf(stderr, "Error: Unable to read symbol address\n");
         }
-        long long libpath;
-        if(get_record_field(&entry, "Primary", &libpath, sizeof(libpath))){
-            fprintf(stderr, "Error: Unable to read symbol library path\n");
+        long long primary;
+        if(get_record_field(&entry, "Primary", &primary, sizeof(primary))){
+            fprintf(stderr, "Error: Unable to read Primary\n");
         }
         if(type == 5)
-        printf("symbol \ttype: %d\taddress: %16llx name: %s libpath %llx\n ", type, address, name, libpath);
+            printf("symbol \ttype: %d\taddress: %16llx name: %s Primary: %llx\n ", type, address, name, primary);
         
     }while (!next_record(&entry));
 
